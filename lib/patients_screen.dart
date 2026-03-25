@@ -1,0 +1,259 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:doctor_portal/theme.dart';
+import 'package:doctor_portal/api_service.dart';
+import 'package:doctor_portal/patient_detail_screen.dart';
+
+class PatientsScreen extends StatefulWidget {
+  const PatientsScreen({super.key});
+
+  @override
+  State<PatientsScreen> createState() => _PatientsScreenState();
+}
+
+class _PatientsScreenState extends State<PatientsScreen> {
+  List<Map<String, dynamic>> _patients = [];
+  List<Map<String, dynamic>> _filteredPatients = [];
+  bool _isLoading = true;
+  final _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPatients();
+    _searchController.addListener(_filterPatients);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPatients() async {
+    setState(() => _isLoading = true);
+    final patients = await ApiService.getPatients();
+    if (mounted) {
+      setState(() {
+        _patients = patients;
+        _filteredPatients = patients;
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _filterPatients() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      _filteredPatients = _patients.where((p) {
+        final name = (p['name'] ?? '').toString().toLowerCase();
+        final preferredName = (p['preferred_name'] ?? '').toString().toLowerCase();
+        final username = (p['username'] ?? '').toString().toLowerCase();
+        return name.contains(query) || preferredName.contains(query) || username.contains(query);
+      }).toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 20),
+
+            // Header
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.people, color: AppTheme.primaryColor, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('My Patients', style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+                    Text('${_patients.length} patients in your care', style: GoogleFonts.inter(fontSize: 13, color: AppTheme.textSecondary)),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // Search Bar
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: AppTheme.cardShadow,
+              ),
+              child: TextField(
+                controller: _searchController,
+                style: GoogleFonts.inter(fontSize: 14, color: AppTheme.textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Search by name or username...',
+                  hintStyle: GoogleFonts.inter(fontSize: 14, color: AppTheme.textSecondary.withOpacity(0.5)),
+                  prefixIcon: const Icon(Icons.search, color: AppTheme.textSecondary, size: 20),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Patient List
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor))
+                  : _filteredPatients.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.people_outline, size: 64, color: AppTheme.textSecondary.withOpacity(0.3)),
+                              const SizedBox(height: 16),
+                              Text('No patients found', style: GoogleFonts.inter(fontSize: 16, color: AppTheme.textSecondary)),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Patients will appear here once they\nadd you to their care team',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.inter(fontSize: 13, color: AppTheme.textSecondary.withOpacity(0.6)),
+                              ),
+                            ],
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _loadPatients,
+                          color: AppTheme.primaryColor,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.only(bottom: 100),
+                            itemCount: _filteredPatients.length,
+                            itemBuilder: (context, index) {
+                              return _buildPatientCard(_filteredPatients[index]);
+                            },
+                          ),
+                        ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPatientCard(Map<String, dynamic> patient) {
+    final name = patient['name'] ?? 'Unknown';
+    final preferredName = patient['preferred_name'] ?? '';
+    final gender = patient['gender'];
+    final bloodType = patient['blood_type'];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: AppTheme.cardShadow,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PatientDetailScreen(patient: patient),
+              ),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                // Avatar
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+                  child: Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : '?',
+                    style: GoogleFonts.inter(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.primaryColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+
+                // Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                      ),
+                      if (preferredName.isNotEmpty && preferredName != name)
+                        Text(
+                          '"$preferredName"',
+                          style: GoogleFonts.inter(fontSize: 13, color: AppTheme.textSecondary, fontStyle: FontStyle.italic),
+                        ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          if (gender != null) _buildBadge(gender, Icons.person_outline),
+                          if (gender != null && bloodType != null) const SizedBox(width: 8),
+                          if (bloodType != null) _buildBadge(bloodType, Icons.water_drop_outlined),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Arrow
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withOpacity(0.08),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.chevron_right, color: AppTheme.primaryColor, size: 20),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBadge(String text, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.border, width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: AppTheme.textSecondary),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w500, color: AppTheme.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
