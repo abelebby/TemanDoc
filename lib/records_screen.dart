@@ -7,7 +7,8 @@ import 'package:doctor_portal/theme.dart';
 import 'package:doctor_portal/api_service.dart';
 
 class RecordsScreen extends StatefulWidget {
-  const RecordsScreen({super.key});
+  final Map<String, dynamic>? preselectedPatient;
+  const RecordsScreen({super.key, this.preselectedPatient});
 
   @override
   State<RecordsScreen> createState() => _RecordsScreenState();
@@ -25,6 +26,19 @@ class _RecordsScreenState extends State<RecordsScreen> {
     _loadPatients();
   }
 
+  void _applyPreselection() {
+    if (widget.preselectedPatient != null) {
+      final preId = widget.preselectedPatient!['id'];
+      for (final p in _patients) {
+        if (p['id'] == preId) {
+          _selectedPatient = p;
+          _loadRecords(p['id']);
+          break;
+        }
+      }
+    }
+  }
+
   Future<void> _loadPatients() async {
     final patients = await ApiService.getPatients();
     if (mounted) {
@@ -32,6 +46,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
         _patients = patients;
         _isLoading = false;
       });
+      _applyPreselection();
     }
   }
 
@@ -51,6 +66,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
     return Scaffold(
       backgroundColor: AppTheme.background,
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'records_fab_${_selectedPatient?['id']}',
         onPressed: _showUploadSheet,
         backgroundColor: AppTheme.primaryColor,
         icon: const Icon(Icons.add, color: Colors.white),
@@ -172,7 +188,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
     final fileUrl = record['file_url'] ?? '';
     String formattedDate = '';
     try {
-      final dt = DateTime.parse(record['created_at']);
+      final dt = DateTime.parse(record['created_at']).toLocal();
       formattedDate = DateFormat('d MMM yyyy').format(dt);
     } catch (_) {}
 

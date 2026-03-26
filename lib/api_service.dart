@@ -231,35 +231,164 @@ class ApiService {
   }
 
   static Future<bool> saveRecord({
-    required String doctorId,
-    required int userId,
-    required String fileName,
-    required String recordType,
-    required String fileUrl,
-    String? description,
-  }) async {
+  required String doctorId,
+  required int userId,
+  required String fileName,
+  required String recordType,
+  required String fileUrl,
+  String? description,
+}) async {
+  try {
+    final token = await _getToken();
+    if (token == null) return false;
+
+    final response = await http.post(
+      Uri.parse('$_baseUrl/care-team/doctor/records'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'user_id': userId,        // this was missing so i added it
+        'doctor_id': doctorId,
+        'file_name': fileName,
+        'record_type': recordType,
+        'file_url': fileUrl,
+        'description': description,
+      }),
+    );
+
+    return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ─── PATIENT MANAGEMENT ───
+
+  static Future<List<Map<String, dynamic>>> searchPatients(String query) async {
+    try {
+      final token = await _getToken();
+      if (token == null) return [];
+
+      final response = await http.get(
+        Uri.parse('$_baseUrl/care-team/doctor/search-patient?query=${Uri.encodeComponent(query)}'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  static Future<Map<String, dynamic>> addPatient(int userId) async {
+    try {
+      final token = await _getToken();
+      if (token == null) return {'success': false, 'message': 'Not authenticated'};
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl/care-team/doctor/add-patient/$userId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {'success': true, 'message': data['message'] ?? 'Patient added'};
+      } else {
+        final data = jsonDecode(response.body);
+        return {'success': false, 'message': data['detail'] ?? 'Failed to add patient'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error'};
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> getPendingRequests() async {
+    try {
+      final token = await _getToken();
+      if (token == null) return [];
+
+      final response = await http.get(
+        Uri.parse('$_baseUrl/care-team/doctor/pending-requests'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  static Future<bool> removePatient(int userId) async {
     try {
       final token = await _getToken();
       if (token == null) return false;
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/care-team/records'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'doctor_id': doctorId,
-          'file_name': fileName,
-          'record_type': recordType,
-          'file_url': fileUrl,
-          'description': description,
-        }),
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/care-team/doctor/remove-patient/$userId'),
+        headers: {'Authorization': 'Bearer $token'},
       );
 
       return response.statusCode == 200;
     } catch (e) {
       return false;
+    }
+  }
+
+  // ─── ACCOUNT DELETION ───
+
+  static Future<bool> deleteAccount() async {
+    try {
+      final token = await _getToken();
+      if (token == null) return false;
+
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/doctors/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ─── APPOINTMENT BOOKING ───
+
+  static Future<Map<String, dynamic>> bookAppointmentForPatient({
+    required int userId,
+    required String appointmentTime,
+    required String purpose,
+  }) async {
+    try {
+      final token = await _getToken();
+      if (token == null) return {'success': false};
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl/care-team/doctor/appointments'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'user_id': userId,
+          'appointment_time': appointmentTime,
+          'purpose': purpose,
+        }),
+      );
+
+      if (response.statusCode == 200) return {'success': true};
+      final decoded = jsonDecode(response.body);
+      return {'success': false, 'message': decoded['detail'] ?? 'Failed to book appointment'};
+    } catch (e) {
+      return {'success': false, 'message': 'Cannot connect to server.'};
     }
   }
 }

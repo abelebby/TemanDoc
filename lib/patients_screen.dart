@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_portal/theme.dart';
 import 'package:doctor_portal/api_service.dart';
 import 'package:doctor_portal/patient_detail_screen.dart';
+import 'package:doctor_portal/screens/add_patient_screen.dart';
 
 class PatientsScreen extends StatefulWidget {
   const PatientsScreen({super.key});
@@ -14,6 +15,7 @@ class PatientsScreen extends StatefulWidget {
 class _PatientsScreenState extends State<PatientsScreen> {
   List<Map<String, dynamic>> _patients = [];
   List<Map<String, dynamic>> _filteredPatients = [];
+  List<Map<String, dynamic>> _pendingRequests = [];
   bool _isLoading = true;
   final _searchController = TextEditingController();
 
@@ -32,11 +34,13 @@ class _PatientsScreenState extends State<PatientsScreen> {
 
   Future<void> _loadPatients() async {
     setState(() => _isLoading = true);
-    final patients = await ApiService.getPatients();
+    final List<Map<String, dynamic>> patients = await ApiService.getPatients();
+    final List<Map<String, dynamic>> pending = await ApiService.getPendingRequests();
     if (mounted) {
       setState(() {
         _patients = patients;
         _filteredPatients = patients;
+        _pendingRequests = pending;
         _isLoading = false;
       });
     }
@@ -76,12 +80,27 @@ class _PatientsScreenState extends State<PatientsScreen> {
                   child: const Icon(Icons.people, color: AppTheme.primaryColor, size: 24),
                 ),
                 const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('My Patients', style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
-                    Text('${_patients.length} patients in your care', style: GoogleFonts.inter(fontSize: 13, color: AppTheme.textSecondary)),
-                  ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('My Patients', style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+                      Text('${_patients.length} patients in your care', style: GoogleFonts.inter(fontSize: 13, color: AppTheme.textSecondary)),
+                    ],
+                  ),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.person_add, color: AppTheme.primaryColor),
+                    onPressed: () async {
+                      await Navigator.push(context, MaterialPageRoute(builder: (context) => const AddPatientScreen()));
+                      _loadPatients();
+                    },
+                  ),
                 ),
               ],
             ),
@@ -107,6 +126,29 @@ class _PatientsScreenState extends State<PatientsScreen> {
               ),
             ),
             const SizedBox(height: 16),
+
+            if (_pendingRequests.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.amber.withOpacity(0.5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.access_time, color: Colors.amber, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'You have ${_pendingRequests.length} pending request(s) awaiting patient approval.',
+                        style: GoogleFonts.inter(fontSize: 13, color: Colors.amber[800], fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
 
             // Patient List
             Expanded(
