@@ -40,7 +40,6 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   List<Map<String, dynamic>> get _filteredAppointments {
-    final now = DateTime.now();
     switch (_selectedFilter) {
       case 0: // Upcoming
         return _allAppointments.where((a) {
