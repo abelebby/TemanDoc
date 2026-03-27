@@ -93,7 +93,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _handleDeleteAccount() {
     final textController = TextEditingController();
 
-    // Step 1: Type "DELETE" confirmation
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -156,7 +155,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showFinalDeleteConfirmation() {
-    // Step 2: Final yes/no
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -232,119 +230,181 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final imageUrl = _profile!['profile_image_url'] ?? '';
 
     return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20).copyWith(bottom: 120),
-        child: Column(
-          children: [
-            const SizedBox(height: 20),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // --- THE RESPONSIVE MAGIC ---
+          // If the screen is wider than 850px, we switch to a 2-column desktop layout.
+          bool isWideScreen = constraints.maxWidth > 850;
 
-            // Profile Header Card
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppTheme.primaryColor, AppTheme.secondaryColor],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.primaryColor.withOpacity(0.3),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
+          if (isWideScreen) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(32),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Left Sidebar: Profile Card & Buttons
+                  Expanded(
+                    flex: 4,
+                    child: Column(
+                      children: [
+                        _buildHeaderCard(name, specialisation, imageUrl),
+                        const SizedBox(height: 24),
+                        _buildActionButtons(),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 32),
+                  // Right Main Area: The editable details
+                  Expanded(
+                    flex: 7,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildPersonalInfoSection(),
+                        const SizedBox(height: 24),
+                        _buildProfessionalSection(),
+                        const SizedBox(height: 24),
+                        _buildContactSection(),
+                      ],
+                    ),
                   ),
                 ],
               ),
+            );
+          } else {
+            // Standard Mobile/Narrow Layout (Everything in a single column)
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20).copyWith(bottom: 120),
               child: Column(
                 children: [
-                  // Avatar
-                  CircleAvatar(
-                    radius: 40,
-                    backgroundColor: Colors.white.withOpacity(0.2),
-                    backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
-                    child: imageUrl.isEmpty
-                        ? Text(
-                            name.isNotEmpty ? name[0].toUpperCase() : '?',
-                            style: GoogleFonts.inter(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
-                          )
-                        : null,
-                  ),
-                  const SizedBox(height: 14),
-                  Text(name, style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-                  if (specialisation.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(specialisation, style: GoogleFonts.inter(fontSize: 13, color: Colors.white.withOpacity(0.9))),
-                    ),
-                  ],
+                  const SizedBox(height: 20),
+                  _buildHeaderCard(name, specialisation, imageUrl),
+                  const SizedBox(height: 24),
+                  _buildPersonalInfoSection(),
+                  const SizedBox(height: 16),
+                  _buildProfessionalSection(),
+                  const SizedBox(height: 16),
+                  _buildContactSection(),
+                  const SizedBox(height: 24),
+                  _buildActionButtons(),
                 ],
               ),
-            ),
-            const SizedBox(height: 24),
-
-            // Profile Fields
-            _buildSection('Personal Information', [
-              _buildEditableRow('Preferred Name', _profile!['preferred_name'], 'preferred_name', Icons.badge),
-              _buildEditableRow('Gender', _profile!['gender'], 'gender', Icons.person_outline),
-              _buildEditableRow('Date of Birth', _profile!['dob'], 'dob', Icons.cake),
-            ]),
-            const SizedBox(height: 16),
-
-            _buildSection('Professional Details', [
-              _buildEditableRow('Education', _profile!['education'], 'education', Icons.school),
-              _buildEditableRow('Specialisation', _profile!['specialisation'], 'specialisation', Icons.local_hospital),
-              _buildEditableRow('Clinic Name', _profile!['clinic_name'], 'clinic_name', Icons.business),
-              _buildEditableRow('Clinic Address', _profile!['clinic_address'], 'clinic_address', Icons.location_on),
-            ]),
-            const SizedBox(height: 16),
-
-            _buildSection('Contact Preferences', [
-              _buildEditableRow('Platform', _profile!['messaging_platform'], 'messaging_platform', Icons.chat_bubble_outline),
-              _buildEditableRow('Platform Link', _profile!['platform_link'], 'platform_link', Icons.link),
-            ]),
-            const SizedBox(height: 24),
-
-            // Sign Out Button
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: OutlinedButton.icon(
-                onPressed: _handleSignOut,
-                icon: const Icon(Icons.logout, size: 20, color: AppTheme.error),
-                label: Text('Sign Out', style: GoogleFonts.inter(color: AppTheme.error, fontWeight: FontWeight.w600)),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppTheme.error, width: 1.5),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // Delete Account Button
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton.icon(
-                onPressed: _handleDeleteAccount,
-                icon: const Icon(Icons.delete_forever, size: 20, color: Colors.white),
-                label: Text('Delete Account', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.error,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-        ),
+            );
+          }
+        },
       ),
+    );
+  }
+
+  // ==========================================
+  // UI HELPER METHODS
+  // ==========================================
+
+  Widget _buildHeaderCard(String name, String specialisation, String imageUrl) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppTheme.primaryColor, AppTheme.secondaryColor],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primaryColor.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 40,
+            backgroundColor: Colors.white.withOpacity(0.2),
+            backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
+            child: imageUrl.isEmpty
+                ? Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : '?',
+                    style: GoogleFonts.inter(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
+                  )
+                : null,
+          ),
+          const SizedBox(height: 14),
+          Text(name, style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          if (specialisation.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(specialisation, style: GoogleFonts.inter(fontSize: 13, color: Colors.white.withOpacity(0.9))),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPersonalInfoSection() {
+    return _buildSection('Personal Information', [
+      _buildEditableRow('Preferred Name', _profile!['preferred_name'], 'preferred_name', Icons.badge),
+      _buildEditableRow('Gender', _profile!['gender'], 'gender', Icons.person_outline),
+      _buildEditableRow('Date of Birth', _profile!['dob'], 'dob', Icons.cake),
+    ]);
+  }
+
+  Widget _buildProfessionalSection() {
+    return _buildSection('Professional Details', [
+      _buildEditableRow('Education', _profile!['education'], 'education', Icons.school),
+      _buildEditableRow('Specialisation', _profile!['specialisation'], 'specialisation', Icons.local_hospital),
+      _buildEditableRow('Clinic Name', _profile!['clinic_name'], 'clinic_name', Icons.business),
+      _buildEditableRow('Clinic Address', _profile!['clinic_address'], 'clinic_address', Icons.location_on),
+    ]);
+  }
+
+  Widget _buildContactSection() {
+    return _buildSection('Contact Preferences', [
+      _buildEditableRow('Platform', _profile!['messaging_platform'], 'messaging_platform', Icons.chat_bubble_outline),
+      _buildEditableRow('Platform Link', _profile!['platform_link'], 'platform_link', Icons.link),
+    ]);
+  }
+
+  Widget _buildActionButtons() {
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: OutlinedButton.icon(
+            onPressed: _handleSignOut,
+            icon: const Icon(Icons.logout, size: 20, color: AppTheme.error),
+            label: Text('Sign Out', style: GoogleFonts.inter(color: AppTheme.error, fontWeight: FontWeight.w600)),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppTheme.error, width: 1.5),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: ElevatedButton.icon(
+            onPressed: _handleDeleteAccount,
+            icon: const Icon(Icons.delete_forever, size: 20, color: Colors.white),
+            label: Text('Delete Account', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.error,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
