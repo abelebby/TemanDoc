@@ -261,8 +261,8 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
                   unselectedLabelStyle: GoogleFonts.inter(fontSize: 12),
                   tabs: const [
                     Tab(text: 'Metrics'),
-                    Tab(text: 'Meds'),
-                    Tab(text: 'Appts'),
+                    Tab(text: 'Medication'),
+                    Tab(text: 'Appointments'),
                     Tab(text: 'Records'),
                   ],
                 ),
@@ -849,6 +849,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
                     if (mounted) {
                       if (result['success'] == true) {
                         _loadData();
+                        ApiService.appointmentRefreshTrigger.value++;
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Appointment booked'), backgroundColor: AppTheme.success, behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))));
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['message'] ?? 'Failed to book'), backgroundColor: AppTheme.error, behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))));

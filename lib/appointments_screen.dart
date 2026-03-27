@@ -24,6 +24,14 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   void initState() {
     super.initState();
     _loadData();
+    ApiService.appointmentRefreshTrigger.addListener(_onGlobalRefresh);
+  }
+
+  void _onGlobalRefresh() {
+    // Only fetch if the widget is still in the tree
+    if (mounted) {
+      _loadData(); 
+    }
   }
 
   Future<void> _loadData() async {
@@ -54,6 +62,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       default:
         return _allAppointments;
     }
+  }
+
+  @override
+  void dispose() {
+    ApiService.appointmentRefreshTrigger.removeListener(_onGlobalRefresh);
+    super.dispose();
   }
 
   @override

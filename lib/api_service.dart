@@ -1,11 +1,12 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   static final String _baseUrl = dotenv.env['API_BASE_URL'] ?? 'http://localhost:8000';
-
+  static final ValueNotifier<int> appointmentRefreshTrigger = ValueNotifier(0);
   // ─── AUTHENTICATION ───
 
   static Future<Map<String, dynamic>> login(String username, String password) async {
