@@ -3,6 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:http/http.dart' as http;
 import 'package:doctor_portal/theme.dart';
 import 'package:doctor_portal/api_service.dart';
 
@@ -185,7 +187,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
     final fileName = record['file_name'] ?? 'Unknown';
     final recordType = record['record_type'] ?? 'Other';
     final description = record['description'] ?? '';
-    final fileUrl = record['file_url'] ?? '';
+    
     String formattedDate = '';
     try {
       final dt = DateTime.parse(record['created_at']).toLocal();
@@ -213,11 +215,33 @@ class _RecordsScreenState extends State<RecordsScreen> {
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
+          // ==========================================
+          // UPDATED: SECURE DOWNLOAD LOGIC
+          // ==========================================
           onTap: () async {
-            if (fileUrl.isNotEmpty) {
-              final uri = Uri.parse(fileUrl);
-              if (await canLaunchUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Fetching secure link for $fileName...'),
+              duration: const Duration(seconds: 1),
+            ));
+            
+            try {
+              final urlData = await ApiService.getDownloadUrl(record['id']);
+              if (urlData != null && urlData['download_url'] != null) {
+                final uri = Uri.parse(urlData['download_url']);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } else {
+                  throw Exception("Could not launch browser");
+                }
+              } else {
+                throw Exception("Failed to get secure URL");
+              }
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('Error opening file: $e'),
+                  backgroundColor: AppTheme.error,
+                ));
               }
             }
           },
@@ -272,11 +296,12 @@ class _RecordsScreenState extends State<RecordsScreen> {
   }
 
   void _showUploadSheet() {
-    final fileNameController = TextEditingController();
     final descriptionController = TextEditingController();
-    final fileUrlController = TextEditingController();
     String selectedType = 'Lab Report';
     Map<String, dynamic>? uploadPatient = _selectedPatient;
+    
+    PlatformFile? selectedFile; 
+    bool isUploading = false;
 
     showModalBottomSheet(
       context: context,
@@ -301,10 +326,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   Center(
                     child: Container(
                       width: 40, height: 4,
-                      decoration: BoxDecoration(
-                        color: AppTheme.border,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+                      decoration: BoxDecoration(color: AppTheme.border, borderRadius: BorderRadius.circular(2)),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -316,10 +338,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppTheme.border),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    decoration: BoxDecoration(border: Border.all(color: AppTheme.border), borderRadius: BorderRadius.circular(12)),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<Map<String, dynamic>>(
                         isExpanded: true,
@@ -339,10 +358,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppTheme.border),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    decoration: BoxDecoration(border: Border.all(color: AppTheme.border), borderRadius: BorderRadius.circular(12)),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         isExpanded: true,
@@ -356,21 +372,52 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // File Name
-                  Text('File Name', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.textSecondary)),
+                  // Document File Picker
+                  Text('Document File', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.textSecondary)),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: fileNameController,
-                    decoration: InputDecoration(hintText: 'e.g. Blood Test Results - March 2026'),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // File URL
-                  Text('File URL', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: AppTheme.textSecondary)),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: fileUrlController,
-                    decoration: InputDecoration(hintText: 'Paste the file URL here'),
+                  InkWell(
+                    onTap: () async {
+                      FilePickerResult? result = await FilePicker.platform.pickFiles(
+                        type: FileType.custom,
+                        allowedExtensions: ['pdf', 'jpg', 'png', 'jpeg'],
+                        withData: true, 
+                      );
+                      if (result != null) {
+                        setSheetState(() {
+                          selectedFile = result.files.single;
+                        });
+                      }
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: selectedFile != null ? AppTheme.success.withOpacity(0.1) : AppTheme.background,
+                        border: Border.all(color: selectedFile != null ? AppTheme.success : AppTheme.border),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            selectedFile != null ? Icons.check_circle : Icons.upload_file, 
+                            color: selectedFile != null ? AppTheme.success : AppTheme.textSecondary
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              selectedFile != null ? selectedFile!.name : 'Tap to select PDF or Image',
+                              style: GoogleFonts.inter(
+                                color: selectedFile != null ? AppTheme.success : AppTheme.textSecondary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 16),
 
@@ -380,7 +427,10 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   TextField(
                     controller: descriptionController,
                     maxLines: 2,
-                    decoration: InputDecoration(hintText: 'Brief description...'),
+                    decoration: InputDecoration(
+                      hintText: 'Brief description...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                   ),
                   const SizedBox(height: 24),
 
@@ -389,42 +439,88 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     width: double.infinity,
                     height: 52,
                     child: ElevatedButton.icon(
-                      onPressed: () async {
-                        if (uploadPatient == null || fileNameController.text.isEmpty || fileUrlController.text.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: const Text('Please fill in all required fields'), backgroundColor: AppTheme.error,
-                              behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                          );
+                      onPressed: isUploading ? null : () async {
+                        if (uploadPatient == null || selectedFile == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: const Text('Please select a patient and a file.'), 
+                            backgroundColor: AppTheme.error,
+                            behavior: SnackBarBehavior.floating, 
+                          ));
                           return;
                         }
 
-                        final prefs = await SharedPreferences.getInstance();
-                        final doctorId = prefs.getString('doctor_id') ?? '';
+                        setSheetState(() => isUploading = true);
 
-                        final success = await ApiService.saveRecord(
-                          doctorId: doctorId,
-                          userId: uploadPatient!['id'],
-                          fileName: fileNameController.text.trim(),
-                          recordType: selectedType,
-                          fileUrl: fileUrlController.text.trim(),
-                          description: descriptionController.text.trim(),
-                        );
+                        try {
+                          final prefs = await SharedPreferences.getInstance();
+                          final doctorId = prefs.getString('doctor_id') ?? '';
+                          
+                          // Extract name and format directly from the file
+                          final fileName = selectedFile!.name;
+                          final extension = selectedFile!.extension?.toLowerCase() ?? '';
+                          final contentType = extension == 'pdf' ? 'application/pdf' : 'image/$extension';
 
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                          if (success) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: const Text('Record uploaded successfully'), backgroundColor: AppTheme.success,
-                                behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                            );
-                            if (_selectedPatient != null) _loadRecords(_selectedPatient!['id']);
+                          // 1. Get the Ticket
+                          final ticketData = await ApiService.getUploadUrl(
+                            patientId: uploadPatient!['id'], 
+                            fileName: fileName, 
+                            fileType: contentType
+                          );
+                          
+                          if (ticketData == null) throw Exception("Failed to get upload ticket from server.");
+
+                          // 2. Upload directly to AWS S3
+                          final uploadResponse = await http.put(
+                            Uri.parse(ticketData['upload_url']),
+                            headers: {'Content-Type': contentType},
+                            body: selectedFile!.bytes!, 
+                          );
+
+                          if (uploadResponse.statusCode != 200) {
+                            throw Exception("AWS rejected the file upload.");
+                          }
+
+                          // 3. Save to database
+                          final success = await ApiService.saveRecord(
+                            doctorId: doctorId,
+                            userId: uploadPatient!['id'],
+                            fileName: fileName,
+                            recordType: selectedType,
+                            fileUrl: ticketData['file_key'], 
+                            description: descriptionController.text.trim(),
+                          );
+
+                          if (context.mounted) {
+                            Navigator.pop(context); 
+                            if (success) {
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: const Text('Record uploaded securely to patient vault.'), 
+                                backgroundColor: AppTheme.success,
+                                behavior: SnackBarBehavior.floating, 
+                              ));
+                              if (_selectedPatient != null) _loadRecords(_selectedPatient!['id']);
+                            } else {
+                              throw Exception("Failed to save record metadata.");
+                            }
+                          }
+                        } catch (e) {
+                          setSheetState(() => isUploading = false);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text('Upload failed: $e'), 
+                              backgroundColor: AppTheme.error,
+                              behavior: SnackBarBehavior.floating, 
+                            ));
                           }
                         }
                       },
-                      icon: const Icon(Icons.upload, size: 20),
-                      label: Text('Upload Record', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                      icon: isUploading 
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : const Icon(Icons.cloud_upload, size: 20),
+                      label: Text(
+                        isUploading ? 'Uploading to Secure Vault...' : 'Upload Record', 
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w600)
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.primaryColor,
                         foregroundColor: Colors.white,

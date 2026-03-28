@@ -910,7 +910,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
     final fileName    = record['file_name'] ?? 'Unknown';
     final recordType  = record['record_type'] ?? 'Other';
     final description = record['description'] ?? '';
-    final fileUrl     = record['file_url'] ?? '';
+    
     String formattedDate = '';
     try {
       formattedDate = DateFormat('d MMM yyyy').format(DateTime.parse(record['created_at']).toLocal());
@@ -933,10 +933,34 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
+          // ==========================================
+          // UPDATED: SECURE DOWNLOAD LOGIC
+          // ==========================================
           onTap: () async {
-            if (fileUrl.isNotEmpty) {
-              final uri = Uri.parse(fileUrl);
-              if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Fetching secure link for $fileName...'),
+              duration: const Duration(seconds: 1),
+            ));
+            
+            try {
+              final urlData = await ApiService.getDownloadUrl(record['id']);
+              if (urlData != null && urlData['download_url'] != null) {
+                final uri = Uri.parse(urlData['download_url']);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } else {
+                  throw Exception("Could not launch browser");
+                }
+              } else {
+                throw Exception("Failed to get secure URL");
+              }
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('Error opening file: $e'),
+                  backgroundColor: AppTheme.error,
+                ));
+              }
             }
           },
           child: Padding(
