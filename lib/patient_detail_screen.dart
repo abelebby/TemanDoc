@@ -27,6 +27,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
   List<Map<String, dynamic>> _medications = [];
   List<Map<String, dynamic>> _appointments = [];
   List<Map<String, dynamic>> _records = [];
+  List<Map<String, dynamic>> _activities = [];
   bool _isLoading = true;
 
   final Map<String, bool> _expandedCharts = {};
@@ -59,6 +60,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
       ApiService.getPatientMedications(_userId),
       ApiService.getAppointments(),
       ApiService.getRecords(userId: _userId),
+      ApiService.getPatientActivity(_userId),
     ]);
 
     if (mounted) {
@@ -69,6 +71,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
             .where((a) => a['user_id'] == _userId)
             .toList();
         _records = results[3] as List<Map<String, dynamic>>;
+        _activities = results[4] as List<Map<String, dynamic>>;
         _isLoading = false;
       });
     }
@@ -306,7 +309,8 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
   // HEALTH METRICS TAB
   // ═══════════════════════════════════════════
   Widget _buildMetricsTab() {
-    if (_metrics.isEmpty) {
+    // 1. UPDATE THIS IF STATEMENT:
+    if (_metrics.isEmpty && _activities.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -365,6 +369,13 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
       metricCards.add(_buildExpandableMetricCard(
         'Body Weight', bwData['body_weight'].toString(), 'kg',
         Icons.monitor_weight, const Color(0xFF10B981), bwData['timestamp'], 'body_weight',
+      ));
+    }
+    if (_activities.isNotEmpty) {
+      final latestActivity = _activities.first;
+      metricCards.add(_buildExpandableActivityCard(
+        'Daily Steps', latestActivity['steps'].toString(), 'steps',
+        Icons.directions_walk, const Color(0xFF0EA5E9), latestActivity['date'], 'activity_steps',
       ));
     }
 
@@ -485,11 +496,15 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
     if (dataPoints.length < 2) {
       return Center(child: Text('Not enough data', style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textSecondary)));
     }
+    
+    // Sort chronologically (oldest on left, newest on right)
     dataPoints = dataPoints.reversed.toList();
+    
     final spots = <FlSpot>[];
     for (int i = 0; i < dataPoints.length; i++) {
       spots.add(FlSpot(i.toDouble(), (dataPoints[i][metricKey] as num).toDouble()));
     }
+    
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 10),
       child: LineChart(LineChartData(
@@ -518,9 +533,35 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
           ),
         ],
         titlesData: FlTitlesData(
-          bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          
+          // ==========================================
+          // X-AXIS LABELS (DATES)
+          // ==========================================
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 24,
+              interval: (dataPoints.length > 10) ? 2 : 1, // Prevent overlap if lots of data
+              getTitlesWidget: (value, meta) {
+                final index = value.toInt();
+                if (index >= 0 && index < dataPoints.length) {
+                  try {
+                    String safeTimestamp = dataPoints[index]['timestamp'];
+                    if (!safeTimestamp.endsWith('Z') && !safeTimestamp.contains('+') && !safeTimestamp.contains('-')) safeTimestamp += 'Z';
+                    final dt = DateTime.parse(safeTimestamp).toLocal();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text(DateFormat('d MMM').format(dt), style: GoogleFonts.inter(fontSize: 10, color: AppTheme.textSecondary)),
+                    );
+                  } catch (_) {}
+                }
+                return const Text('');
+              },
+            ),
+          ),
+          
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -531,17 +572,41 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
         ),
         gridData: FlGridData(
           drawVerticalLine: false,
-          getDrawingHorizontalLine: (v) => FlLine(color: AppTheme.border.withOpacity(0.5), strokeWidth: 1),
+          getDrawingHorizontalLine: (v) => FlLine(color: AppTheme.border.withOpacity(0.5), strokeWidth: 1, dashArray: [5, 5]),
         ),
         borderData: FlBorderData(show: false),
+        
+        // ==========================================
+        // TOOLTIPS WITH DATES & EDGE PROTECTION
+        // ==========================================
         lineTouchData: LineTouchData(
           touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (_) => Colors.white,
+            fitInsideHorizontally: true, 
+            fitInsideVertically: true,   
+            getTooltipColor: (_) => AppTheme.textPrimary.withOpacity(0.9), // Dark background
             tooltipRoundedRadius: 8,
-            getTooltipItems: (spots) => spots.map((s) => LineTooltipItem(
-              '${s.y.toInt()}',
-              GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: color),
-            )).toList(),
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((spot) {
+                final index = spot.x.toInt();
+                String dateText = '';
+                if (index >= 0 && index < dataPoints.length) {
+                  try {
+                    String safeTimestamp = dataPoints[index]['timestamp'];
+                    if (!safeTimestamp.endsWith('Z') && !safeTimestamp.contains('+') && !safeTimestamp.contains('-')) safeTimestamp += 'Z';
+                    final dt = DateTime.parse(safeTimestamp).toLocal();
+                    dateText = '${DateFormat('EEEE, d MMM').format(dt)}\n';
+                  } catch (_) {}
+                }
+                
+                // Keep decimals for weight, format integers for HR/SpO2
+                String valStr = spot.y.truncateToDouble() == spot.y ? spot.y.toInt().toString() : spot.y.toStringAsFixed(1);
+                
+                return LineTooltipItem(
+                  '$dateText$valStr',
+                  GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                );
+              }).toList();
+            },
           ),
         ),
       )),
@@ -556,7 +621,10 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
     if (dataPoints.length < 2) {
       return Center(child: Text('Not enough data', style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textSecondary)));
     }
+    
+    // Sort chronologically
     dataPoints = dataPoints.reversed.toList();
+    
     final sysSpots = <FlSpot>[];
     final diaSpots = <FlSpot>[];
     for (int i = 0; i < dataPoints.length; i++) {
@@ -565,6 +633,10 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
     }
     const sysColor = Color(0xFF8B5CF6);
     const diaColor = Color(0xFF10B981);
+
+    const tooltipSysColor = Color(0xFFC4B5FD); // Bright Pastel Purple
+    const tooltipDiaColor = Color(0xFF6EE7B7); // Bright Mint Green
+    
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 10),
       child: LineChart(LineChartData(
@@ -581,9 +653,34 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
           ),
         ],
         titlesData: FlTitlesData(
-          bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          
+          // ==========================================
+          // BP X-AXIS LABELS (DATES)
+          // ==========================================
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true, 
+              reservedSize: 24,
+              interval: (dataPoints.length > 10) ? 2 : 1,
+              getTitlesWidget: (value, meta) {
+                final index = value.toInt();
+                if (index >= 0 && index < dataPoints.length) {
+                  try {
+                    String safeTimestamp = dataPoints[index]['timestamp'];
+                    if (!safeTimestamp.endsWith('Z') && !safeTimestamp.contains('+') && !safeTimestamp.contains('-')) safeTimestamp += 'Z';
+                    final dt = DateTime.parse(safeTimestamp).toLocal();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text(DateFormat('d MMM').format(dt), style: GoogleFonts.inter(fontSize: 10, color: AppTheme.textSecondary)),
+                    );
+                  } catch (_) {}
+                }
+                return const Text('');
+              },
+            ),
+          ),
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true, reservedSize: 35,
@@ -591,16 +688,235 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
             ),
           ),
         ),
-        gridData: FlGridData(drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: AppTheme.border.withOpacity(0.5), strokeWidth: 1)),
+        gridData: FlGridData(
+          drawVerticalLine: false, 
+          getDrawingHorizontalLine: (v) => FlLine(color: AppTheme.border.withOpacity(0.5), strokeWidth: 1, dashArray: [5, 5])
+        ),
         borderData: FlBorderData(show: false),
+        
+        // ==========================================
+        // DUAL-LINE BP TOOLTIPS
+        // ==========================================
         lineTouchData: LineTouchData(
           touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (_) => Colors.white,
+            fitInsideHorizontally: true,
+            fitInsideVertically: true,
+            getTooltipColor: (_) => AppTheme.textPrimary.withOpacity(0.9),
             tooltipRoundedRadius: 8,
-            getTooltipItems: (spots) => spots.map((s) => LineTooltipItem(
-              '${s.barIndex == 0 ? "Sys" : "Dia"}: ${s.y.toInt()}',
-              GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: s.barIndex == 0 ? sysColor : diaColor),
-            )).toList(),
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((s) {
+                final index = s.x.toInt();
+                String dateText = '';
+                
+                // Only attach the date to the FIRST spot in the list so it doesn't print twice!
+                if (touchedSpots.indexOf(s) == 0 && index >= 0 && index < dataPoints.length) {
+                  try {
+                    String safeTimestamp = dataPoints[index]['timestamp'];
+                    if (!safeTimestamp.endsWith('Z') && !safeTimestamp.contains('+') && !safeTimestamp.contains('-')) safeTimestamp += 'Z';
+                    final dt = DateTime.parse(safeTimestamp).toLocal();
+                    dateText = '${DateFormat('EEEE, d MMM').format(dt)}\n';
+                  } catch (_) {}
+                }
+                
+                return LineTooltipItem(
+                  '$dateText${s.barIndex == 0 ? "Sys" : "Dia"}: ${s.y.toInt()}',
+                  GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: s.barIndex == 0 ? tooltipSysColor : tooltipDiaColor),
+                );
+              }).toList();
+            },
+          ),
+        ),
+      )),
+    );
+  }
+
+  Widget _buildExpandableActivityCard(
+    String label, String value, String unit,
+    IconData icon, Color color, String dateStr, String key,
+  ) {
+    String formattedTime = '';
+    try {
+      final dt = DateTime.parse(dateStr).toLocal();
+      formattedTime = DateFormat('d MMM yyyy').format(dt);
+    } catch (_) {
+      formattedTime = dateStr; 
+    }
+
+    final isExpanded = _expandedCharts[key] ?? false;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: AppTheme.cardShadow),
+      child: Material(
+        color: Colors.transparent, borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => setState(() => _expandedCharts[key] = !isExpanded),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                      child: Icon(icon, color: color, size: 22),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(label, style: GoogleFonts.inter(fontSize: 13, color: AppTheme.textSecondary, fontWeight: FontWeight.w500)),
+                          const SizedBox(height: 4),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Text(value, style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+                              const SizedBox(width: 4),
+                              Text(unit, style: GoogleFonts.inter(fontSize: 13, color: AppTheme.textSecondary)),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text("Last Synced: $formattedTime", style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textSecondary.withOpacity(0.6))),
+                        ],
+                      ),
+                    ),
+                    Icon(isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: AppTheme.textSecondary.withOpacity(0.5)),
+                  ],
+                ),
+                AnimatedCrossFade(
+                  firstChild: const SizedBox(height: 0),
+                  secondChild: Column(
+                    children: [
+                      const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1)),
+                      Text('Trend (Last 14 days)', style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 10),
+                      SizedBox(height: 180, child: _buildActivityRawChart(color)),
+                    ],
+                  ),
+                  crossFadeState: isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                  duration: const Duration(milliseconds: 250),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActivityRawChart(Color color) {
+    var dataPoints = List<Map<String, dynamic>>.from(_activities);
+    if (dataPoints.length > 14) dataPoints = dataPoints.sublist(0, 14);
+    if (dataPoints.length < 2) return Center(child: Text('Not enough data', style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textSecondary)));
+    
+    // Sort chronologically (oldest on left, newest on right)
+    dataPoints = dataPoints.reversed.toList();
+    
+    final spots = <FlSpot>[];
+    for (int i = 0; i < dataPoints.length; i++) {
+      spots.add(FlSpot(i.toDouble(), (dataPoints[i]['steps'] as num).toDouble()));
+    }
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 10),
+      child: LineChart(LineChartData(
+        minX: 0, 
+        maxX: (dataPoints.length - 1).toDouble(),
+        minY: 0, // Keep the floor of the graph at 0 steps
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots, 
+            isCurved: true, // Change to 'false' if you prefer sharp, exact point-to-point lines!
+            color: color, 
+            barWidth: 3, 
+            isStrokeCapRound: true,
+            dotData: FlDotData(show: true, getDotPainter: (s, p, b, i) => FlDotCirclePainter(radius: 4, color: Colors.white, strokeWidth: 2, strokeColor: color)),
+            belowBarData: BarAreaData(show: true, gradient: LinearGradient(colors: [color.withOpacity(0.3), color.withOpacity(0.0)], begin: Alignment.topCenter, end: Alignment.bottomCenter)),
+          ),
+        ],
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          
+          // ==========================================
+          // 1. ADD X-AXIS LABELS (DATES)
+          // ==========================================
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 24,
+              interval: 2, // Show every 2nd day so the text doesn't overlap
+              getTitlesWidget: (value, meta) {
+                final index = value.toInt();
+                if (index >= 0 && index < dataPoints.length) {
+                  try {
+                    final dt = DateTime.parse(dataPoints[index]['date']).toLocal();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text(DateFormat('d MMM').format(dt), style: GoogleFonts.inter(fontSize: 10, color: AppTheme.textSecondary)),
+                    );
+                  } catch (_) {}
+                }
+                return const Text('');
+              },
+            ),
+          ),
+          
+          // ==========================================
+          // 2. CLEAN UP Y-AXIS LABELS (e.g., 10k)
+          // ==========================================
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true, 
+              reservedSize: 35,
+              getTitlesWidget: (value, meta) {
+                if (value == 0) return const Text(''); // Hide 0 to keep the bottom clean
+                String text = value.toInt().toString();
+                if (value >= 1000) {
+                  text = '${(value / 1000).toStringAsFixed(1)}k'; // e.g., 10.5k
+                  if (text.endsWith('.0k')) text = '${(value / 1000).toInt()}k'; // e.g., 10k
+                }
+                return Text(text, style: GoogleFonts.inter(fontSize: 10, color: AppTheme.textSecondary));
+              },
+            ),
+          ),
+        ),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false, 
+          getDrawingHorizontalLine: (v) => FlLine(color: AppTheme.border.withOpacity(0.5), strokeWidth: 1, dashArray: [5, 5])
+        ),
+        borderData: FlBorderData(show: false),
+        
+        // ==========================================
+        // 3. ADD DATES TO THE TOOLTIP
+        // ==========================================
+        lineTouchData: LineTouchData(
+          touchTooltipData: LineTouchTooltipData(
+            fitInsideHorizontally: true,
+            fitInsideVertically: true,
+            getTooltipColor: (_) => AppTheme.textPrimary.withOpacity(0.9), // Dark background for better contrast
+            tooltipRoundedRadius: 8,
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((spot) {
+                final index = spot.x.toInt();
+                String dateText = '';
+                if (index >= 0 && index < dataPoints.length) {
+                  try {
+                    final dt = DateTime.parse(dataPoints[index]['date']).toLocal();
+                    dateText = '${DateFormat('EEEE, d MMM').format(dt)}\n'; // e.g., "Monday, 12 Mar"
+                  } catch (_) {}
+                }
+                return LineTooltipItem(
+                  '$dateText${spot.y.toInt()} steps',
+                  GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                );
+              }).toList();
+            },
           ),
         ),
       )),

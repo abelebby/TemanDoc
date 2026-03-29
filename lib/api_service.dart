@@ -147,6 +147,25 @@ class ApiService {
     }
   }
 
+  static Future<List<Map<String, dynamic>>> getPatientActivity(int userId) async {
+    try {
+      final token = await _getToken();
+      if (token == null) return [];
+
+      final response = await http.get(
+        Uri.parse('$_baseUrl/care-team/doctor/patients/$userId/activity'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   static Future<List<Map<String, dynamic>>> getPatientMedications(int userId) async {
     try {
       final token = await _getToken();
