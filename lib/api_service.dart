@@ -426,6 +426,22 @@ class ApiService {
     }
   }
 
+  static Future<bool> withdrawRequest(int requestId) async {
+    try {
+      final token = await _getToken();
+      if (token == null) return false;
+
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/care-team/doctor/pending-requests/$requestId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // ─── ACCOUNT DELETION ───
 
   static Future<bool> deleteAccount() async {
@@ -447,26 +463,26 @@ class ApiService {
   // ─── APPOINTMENT BOOKING ───
 
   static Future<Map<String, dynamic>> bookAppointmentForPatient({
-    required int userId,
-    required String appointmentTime,
-    required String purpose,
-  }) async {
-    try {
-      final token = await _getToken();
-      if (token == null) return {'success': false};
+      required int userId,
+      required String appointmentTime,
+      required String purpose,
+    }) async {
+      try {
+        final token = await _getToken();
+        if (token == null) return {'success': false};
 
-      final response = await http.post(
-        Uri.parse('$_baseUrl/care-team/doctor/appointments'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'user_id': userId,
-          'appointment_time': appointmentTime,
-          'purpose': purpose,
-        }),
-      );
+        final response = await http.post(
+          Uri.parse('$_baseUrl/care-team/doctor/appointments'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'user_id': userId,
+            'appointment_time': appointmentTime, // <-- Just pass the raw string
+            'purpose': purpose,
+          }),
+        );
 
       if (response.statusCode == 200) return {'success': true};
       final decoded = jsonDecode(response.body);

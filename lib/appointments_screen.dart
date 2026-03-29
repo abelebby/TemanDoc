@@ -201,7 +201,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
     String formattedTime = '';
     try {
-      final dt = DateTime.parse(appt['appointment_time']).toLocal();
+      // Just read exactly what is in the database!
+      final dt = DateTime.parse(appt['appointment_time']);
       formattedTime = DateFormat('EEEE, d MMM · h:mm a').format(dt);
     } catch (_) {}
 
@@ -556,7 +557,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                               selectedDate!.year, selectedDate!.month, selectedDate!.day,
                               selectedTime!.hour, selectedTime!.minute,
                             );
-                            final isoString = combined.toUtc().toIso8601String();
+                            final isoString = combined.toIso8601String();
                             
                             final patientName = _patients.firstWhere((p) => p['id'] == selectedPatientId)['name'];
 

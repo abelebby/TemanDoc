@@ -1,3 +1,4 @@
+import 'package:doctor_portal/pending_requests_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:doctor_portal/theme.dart';
@@ -56,6 +57,76 @@ class _PatientsScreenState extends State<PatientsScreen> {
         return name.contains(query) || preferredName.contains(query) || username.contains(query);
       }).toList();
     });
+  }
+
+  Future<void> _confirmRemovePatient(Map<String, dynamic> patient) async {
+    final patientName = patient['preferred_name'] ?? patient['name'] ?? 'this patient';
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Remove Patient', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+        content: Text(
+          'Are you sure you want to remove $patientName from your care team?\n\nYou will no longer be able to access their medical records, health metrics, or medications.',
+          style: GoogleFonts.inter(color: AppTheme.textSecondary, height: 1.5),
+        ),
+        actionsPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 10),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text('Cancel', style: GoogleFonts.inter(color: AppTheme.textSecondary, fontWeight: FontWeight.w600)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.error,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text('Remove', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final success = await ApiService.removePatient(patient['id']);
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('$patientName removed from your care team.'),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ));
+          _loadPatients(); 
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: const Text('Failed to remove patient. Please try again.'),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ));
+        }
+      }
+    }
   }
 
   @override
@@ -128,25 +199,36 @@ class _PatientsScreenState extends State<PatientsScreen> {
             const SizedBox(height: 16),
 
             if (_pendingRequests.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.amber.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.withOpacity(0.5)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.access_time, color: Colors.amber, size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'You have ${_pendingRequests.length} pending request(s) awaiting patient approval.',
-                        style: GoogleFonts.inter(fontSize: 13, color: Colors.amber[800], fontWeight: FontWeight.w500),
+              GestureDetector(
+                onTap: () async {
+                  // Wait for the doctor to come back from the pending screen, then refresh!
+                  await Navigator.push(
+                    context, 
+                    MaterialPageRoute(builder: (context) => const DoctorPendingRequestsScreen())
+                  );
+                  _loadPatients(); 
+                },
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.amber.withOpacity(0.5)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.access_time, color: Colors.amber, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'You have ${_pendingRequests.length} pending request(s) awaiting patient approval. Tap to view.',
+                          style: GoogleFonts.inter(fontSize: 13, color: Colors.amber[800], fontWeight: FontWeight.w500),
+                        ),
                       ),
-                    ),
-                  ],
+                      const Icon(Icons.chevron_right, color: Colors.amber, size: 20),
+                    ],
+                  ),
                 ),
               ),
 
@@ -259,6 +341,16 @@ class _PatientsScreenState extends State<PatientsScreen> {
                     ],
                   ),
                 ),
+                
+                // Remove Patient Button
+                IconButton(
+                  icon: const Icon(Icons.person_remove, color: AppTheme.error, size: 22),
+                  onPressed: () => _confirmRemovePatient(patient),
+                  tooltip: 'Remove Patient',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 12),
 
                 // Arrow
                 Container(
