@@ -94,28 +94,74 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
   }
 
   Future<void> _downloadReport() async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Row(children: [
-          SizedBox(width: 20, height: 20,
-              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
-          SizedBox(width: 12),
-          Text('Generating report...'),
-        ]),
-        backgroundColor: AppTheme.primaryColor,
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 15),
-      ),
+    // 1. Show the Linear Loading Dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false, 
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Center(
+            child: Container(
+              width: 280,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // --- THE FIX: Linear bar handles CPU hitches much better ---
+                  const LinearProgressIndicator(
+                    backgroundColor: Color(0xFFE5E7EB),
+                    color: AppTheme.primaryColor,
+                    minHeight: 6,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Compiling Medical Report...', 
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'This may take a moment', 
+                    style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textSecondary)
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
 
-    await Future.delayed(const Duration(milliseconds: 300));
+    // Initial pause to let the dialog fade in smoothly
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // 2. Capture charts with "Breathing Room" for the UI thread
+    final hrImg = await _captureChart(_hrKey);
+    await Future.delayed(const Duration(milliseconds: 50)); 
+
+    final bpImg = await _captureChart(_bpKey);
+    await Future.delayed(const Duration(milliseconds: 50)); 
+
+    final glucoseImg = await _captureChart(_glucoseKey);
+    await Future.delayed(const Duration(milliseconds: 50)); 
+
+    final spo2Img = await _captureChart(_spo2Key);
+    await Future.delayed(const Duration(milliseconds: 50)); 
+
+    final weightImg = await _captureChart(_weightKey);
+    await Future.delayed(const Duration(milliseconds: 50)); 
 
     final chartImages = {
-      'heart_rate':        await _captureChart(_hrKey),
-      'blood_pressure':    await _captureChart(_bpKey),
-      'blood_glucose':     await _captureChart(_glucoseKey),
-      'oxygen_saturation': await _captureChart(_spo2Key),
-      'body_weight':       await _captureChart(_weightKey),
+      'heart_rate':        hrImg,
+      'blood_pressure':    bpImg,
+      'blood_glucose':     glucoseImg,
+      'oxygen_saturation': spo2Img,
+      'body_weight':       weightImg,
     };
 
     final prefs = await SharedPreferences.getInstance();
@@ -127,17 +173,26 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
     };
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    // 3. Generate the PDF
+    // Even with the linear bar, we yield one last time before the final freeze
+    await Future.delayed(const Duration(milliseconds: 100));
 
     await DoctorPdfGenerator.generateAndDownload(
       patient:      widget.patient,
       metrics:      _metrics,
+      activities:   _activities,
       medications:  _medications,
       appointments: _appointments,
       doctor:       doctor,
       chartImages:  chartImages,
       context:      context,
     );
+
+    // 4. Close the dialog
+    if (mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
   }
 
   Widget _buildHiddenCharts() {
@@ -309,15 +364,21 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
   // HEALTH METRICS TAB
   // ═══════════════════════════════════════════
   Widget _buildMetricsTab() {
-    // 1. UPDATE THIS IF STATEMENT:
-    if (_metrics.isEmpty && _activities.isEmpty) {
+    // --- 1. EXTRACT AND FILTER CONDITIONS ---
+    final String conditionsStr = widget.patient['conditions'] ?? '';
+    final List<String> conditionsList = conditionsStr.isNotEmpty 
+        ? conditionsStr.split(',').map((e) => e.trim()).where((c) => c.toLowerCase() != 'none').toList() 
+        : [];
+
+    // --- 2. UPDATED EMPTY STATE (Now respects conditions) ---
+    if (_metrics.isEmpty && _activities.isEmpty && conditionsList.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.monitor_heart_outlined, size: 48, color: AppTheme.textSecondary.withOpacity(0.3)),
             const SizedBox(height: 12),
-            Text('No health data recorded yet', style: GoogleFonts.inter(color: AppTheme.textSecondary)),
+            Text('No health data or conditions recorded yet', style: GoogleFonts.inter(color: AppTheme.textSecondary)),
           ],
         ),
       );
@@ -339,6 +400,42 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> with SingleTi
 
     final metricCards = <Widget>[];
 
+    // --- 3. INJECT THE CONDITIONS CARD ---
+    if (conditionsList.isNotEmpty) {
+      metricCards.add(
+        Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryColor.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.primaryColor.withOpacity(0.2)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Reported Health Conditions", style: GoogleFonts.inter(fontSize: 13, color: AppTheme.textSecondary, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: conditionsList.map((cond) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppTheme.primaryColor.withOpacity(0.2)),
+                  ),
+                  child: Text(cond, style: GoogleFonts.inter(color: AppTheme.primaryColor, fontSize: 12, fontWeight: FontWeight.bold)),
+                )).toList(),
+              ),
+            ],
+          ),
+        )
+      );
+    }
+
+    // --- 4. BUILD THE REST OF THE METRICS ---
     if (hrData != null) {
       metricCards.add(_buildExpandableMetricCard(
         'Heart Rate', hrData['heart_rate'].toString(), 'bpm',

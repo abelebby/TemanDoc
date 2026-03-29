@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'package:flutter/material.dart' show BuildContext, ScaffoldMessenger, SnackBar, Text, Colors, SnackBarBehavior, AppTheme;
+import 'package:flutter/material.dart' show BuildContext, ScaffoldMessenger, SnackBar, Text, Colors, SnackBarBehavior;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -14,52 +14,50 @@ class DoctorPdfGenerator {
   static final PdfColor _teal = PdfColor.fromHex('#0D6E6E');
   static final PdfColor _navy = PdfColor.fromHex('#1A3C5E');
   static final PdfColor _accent = PdfColor.fromHex('#14919B');
-  static final PdfColor _success = PdfColor.fromHex('#16A34A');
-  static final PdfColor _warning = PdfColor.fromHex('#F59E0B');
-  static final PdfColor _error = PdfColor.fromHex('#DC2626');
   static final PdfColor _grey = PdfColor.fromHex('#F3F4F6');
+  static final PdfColor _error = PdfColor.fromHex('#DC2626');
   
   static String _classify(String key, dynamic value) {
     if (value == null) return '-';
-    // Clean value (e.g. might be "120/80")
     String vStr = value.toString();
     if (vStr.contains('/')) vStr = vStr.split('/').first;
     final v = double.tryParse(vStr) ?? 0;
 
     switch (key) {
       case 'heart_rate':
-        if (v < 60) return '⚠ Low';
-        if (v <= 100) return '✓ Normal';
-        return '⚠ High';
+        if (v < 60) return 'Low';
+        if (v <= 100) return 'Normal';
+        return 'High';
       case 'blood_pressure':
-        if (v < 90) return '⚠ Low';
-        if (v <= 120) return '✓ Normal';
-        if (v <= 139) return '⚠ Elevated';
-        return '🔴 High';
+        if (v < 90) return 'Low';
+        if (v <= 120) return 'Normal';
+        if (v <= 139) return 'Elevated';
+        return 'High';
       case 'blood_glucose':
-        if (v < 70) return '⚠ Low';
-        if (v <= 99) return '✓ Normal';
-        if (v <= 125) return '⚠ Pre-diabetic';
-        return '🔴 High';
+        if (v < 70) return 'Low';
+        if (v <= 99) return 'Normal';
+        if (v <= 125) return 'Pre-diabetic';
+        return 'High';
       case 'oxygen_saturation':
-        if (v >= 95) return '✓ Normal';
-        if (v >= 90) return '⚠ Low';
-        return '🔴 Critical';
+        if (v >= 95) return 'Normal';
+        if (v >= 90) return 'Low';
+        return 'Critical';
+      case 'steps': // --- NEW: Classify Steps! ---
+        if (v >= 10000) return 'Goal Met';
+        if (v >= 5000) return 'Active';
+        return 'Low';
       default: return '-';
     }
-  }
-
-  static PdfColor _statusColor(String status) {
-    if (status.contains('Normal')) return _success;
-    if (status.contains('Elevated') || status.contains('Low') || status.contains('Pre')) return _warning;
-    if (status.contains('High') || status.contains('Critical')) return _error;
-    return PdfColors.black;
   }
 
   static String _formatTime(String? ts) {
     if (ts == null || ts.isEmpty) return '-';
     try {
-      return DateFormat('MMM d, yyyy h:mm a').format(DateTime.parse(ts).toLocal());
+      String safeTimestamp = ts;
+      if (!safeTimestamp.endsWith('Z') && !safeTimestamp.contains('+') && !safeTimestamp.contains('-')) {
+        safeTimestamp += 'Z';
+      }
+      return DateFormat('MMM d, yyyy h:mm a').format(DateTime.parse(safeTimestamp).toLocal());
     } catch (_) {
       return ts;
     }
@@ -68,6 +66,7 @@ class DoctorPdfGenerator {
   static Future<void> generateAndDownload({
     required Map<String, dynamic> patient,
     required List<Map<String, dynamic>> metrics,
+    required List<Map<String, dynamic>> activities, // <--- NEW PARAMETER
     required List<Map<String, dynamic>> medications,
     required List<Map<String, dynamic>> appointments,
     required Map<String, dynamic> doctor,
@@ -89,6 +88,60 @@ class DoctorPdfGenerator {
 
     final dateStr = DateFormat('MMMM d, yyyy').format(DateTime.now());
     final patientName = patient['name'] ?? 'Unknown';
+
+    // ==========================================
+    // DYNAMIC ACCESS CHECKS
+    // ==========================================
+    Map<String, dynamic>? latestForKey(String key) {
+      for (final m in metrics) {
+        if (m[key] != null) return m;
+      }
+      return null;
+    }
+
+    final hrData = latestForKey('heart_rate');
+    final bpSysData = latestForKey('blood_pressure_systolic');
+    final bpDiaData = latestForKey('blood_pressure_diastolic');
+    final bgData = latestForKey('blood_glucose');
+    final spo2Data = latestForKey('oxygen_saturation');
+    final bwData = latestForKey('body_weight');
+    
+    // Grab the latest activity (it's already sorted chronologically by the backend!)
+    final latestActivity = activities.isNotEmpty ? activities.first : null;
+
+    final bool hasHR = hrData != null || chartImages['heart_rate'] != null;
+    final bool hasBP = bpSysData != null || chartImages['blood_pressure'] != null;
+    final bool hasGlucose = bgData != null || chartImages['blood_glucose'] != null;
+    final bool hasSpO2 = spo2Data != null || chartImages['oxygen_saturation'] != null;
+    final bool hasWeight = bwData != null || chartImages['body_weight'] != null;
+    final bool hasActivity = latestActivity != null;
+
+    // Build the "Latest Metrics" table rows dynamically
+    final latestTableData = <List<String>>[
+      ['Metric', 'Value', 'Unit', 'Status']
+    ];
+    
+    if (hasHR) {
+      latestTableData.add(['Heart Rate', hrData?['heart_rate']?.toString() ?? '-', 'bpm', _classify('heart_rate', hrData?['heart_rate'])]);
+    }
+    if (hasBP) {
+      final bpVal = (bpSysData?['blood_pressure_systolic'] != null && bpDiaData?['blood_pressure_diastolic'] != null)
+          ? '${bpSysData!['blood_pressure_systolic']}/${bpDiaData!['blood_pressure_diastolic']}' : '-';
+      latestTableData.add(['Blood Pressure', bpVal, 'mmHg', _classify('blood_pressure', bpSysData?['blood_pressure_systolic'])]);
+    }
+    if (hasGlucose) {
+      latestTableData.add(['Blood Glucose', bgData?['blood_glucose']?.toString() ?? '-', 'mg/dL', _classify('blood_glucose', bgData?['blood_glucose'])]);
+    }
+    if (hasSpO2) {
+      latestTableData.add(['Oxygen Saturation', spo2Data?['oxygen_saturation']?.toString() ?? '-', '%', _classify('oxygen_saturation', spo2Data?['oxygen_saturation'])]);
+    }
+    if (hasWeight) {
+      latestTableData.add(['Body Weight', bwData?['body_weight']?.toString() ?? '-', 'kg', '-']);
+    }
+    // --- INJECT STEPS INTO THE TABLE ---
+    if (hasActivity) {
+      latestTableData.add(['Daily Steps', latestActivity['steps']?.toString() ?? '-', 'steps', _classify('steps', latestActivity['steps'])]);
+    }
 
     // ==========================================
     // PAGE 1: SUMMARY
@@ -114,7 +167,7 @@ class DoctorPdfGenerator {
                   children: [
                     pw.Text('COMPREHENSIVE PATIENT REPORT', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: _navy, fontSize: 14)),
                     pw.Text(dateStr, style: pw.TextStyle(color: PdfColors.grey700, fontSize: 10)),
-                    pw.Text('Prepared by: Dr. ${doctor['name']}', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 10)),
+                    pw.Text('Prepared by: ${doctor['name']}', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 10)),
                   ],
                 ),
               ],
@@ -150,6 +203,8 @@ class DoctorPdfGenerator {
                       children: [
                         pw.Text('Gender: ${patient['gender'] ?? '-'}', style: const pw.TextStyle(fontSize: 10)),
                         pw.Text('Blood Type: ${patient['blood_type'] ?? '-'}', style: const pw.TextStyle(fontSize: 10)),
+                        if (patient['conditions'] != null && patient['conditions'].toString().isNotEmpty)
+                          pw.Text('Conditions: ${patient['conditions']}', style: pw.TextStyle(fontSize: 10, color: _error, fontWeight: pw.FontWeight.bold)),
                       ],
                     ),
                   ),
@@ -161,8 +216,8 @@ class DoctorPdfGenerator {
             // LATEST HEALTH METRICS
             pw.Text('Latest Health Metrics', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14, color: _navy)),
             pw.SizedBox(height: 10),
-            if (metrics.isEmpty)
-              pw.Text('No health metrics recorded.', style: pw.TextStyle(fontStyle: pw.FontStyle.italic, color: PdfColors.grey700))
+            if (latestTableData.length <= 1)
+              pw.Text('No health metrics available or access denied.', style: pw.TextStyle(fontStyle: pw.FontStyle.italic, color: PdfColors.grey700))
             else
               pw.Table.fromTextArray(
                 context: ctx,
@@ -171,25 +226,7 @@ class DoctorPdfGenerator {
                 rowDecoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.5))),
                 cellStyle: const pw.TextStyle(fontSize: 10),
                 cellPadding: const pw.EdgeInsets.all(6),
-                data: [
-                  ['Metric', 'Value', 'Unit', 'Status'],
-                  ['Heart Rate', metrics.first['heart_rate']?.toString() ?? '-', 'bpm', _classify('heart_rate', metrics.first['heart_rate'])],
-                  ['Blood Pressure', 
-                   (metrics.first['blood_pressure_systolic'] != null && metrics.first['blood_pressure_diastolic'] != null)
-                     ? '${metrics.first['blood_pressure_systolic']}/${metrics.first['blood_pressure_diastolic']}' : '-',
-                   'mmHg', _classify('blood_pressure', metrics.first['blood_pressure_systolic'])],
-                  ['Blood Glucose', metrics.first['blood_glucose']?.toString() ?? '-', 'mg/dL', _classify('blood_glucose', metrics.first['blood_glucose'])],
-                  ['Oxygen Saturation', metrics.first['oxygen_saturation']?.toString() ?? '-', '%', _classify('oxygen_saturation', metrics.first['oxygen_saturation'])],
-                  ['Body Weight', metrics.first['body_weight']?.toString() ?? '-', 'kg', '-'],
-                ].map((row) {
-                  // Custom row mapping to apply colors to Status
-                   return row.map((cell) {
-                     if (row.indexOf(cell) == 3 && cell != 'Status' && cell != '-') {
-                       return cell; // Handled in cellBuilder manually if we wanted rich text, but textArray is simple.
-                     }
-                     return cell;
-                   }).toList();
-                }).toList(),
+                data: latestTableData, // Uses our dynamically built table!
               ),
 
             pw.SizedBox(height: 30),
@@ -208,15 +245,22 @@ class DoctorPdfGenerator {
                 cellStyle: const pw.TextStyle(fontSize: 10),
                 cellPadding: const pw.EdgeInsets.all(6),
                 data: <List<String>>[
-                  ['Medication', 'Dosage', 'Schedule', 'Inventory', 'Adherence', 'Taken Today'],
-                  ...medications.map((m) => [
-                    m['name'] ?? '-',
-                    m['dosage'] ?? '-',
-                    m['schedule'] ?? '-',
-                    '${m['inventory_amount'] ?? '-'} ${m['unit'] ?? ''}',
-                    '${m['adherence_rate'] ?? 0}%',
-                    m['taken_today'] == true ? 'Yes' : 'No'
-                  ]),
+                  ['Medication', 'Dosage', 'Schedule', 'Inventory', 'Taken Today'],
+                  ...medications.map((m) {
+                    final timesList = (m['times'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+                    final scheduleStr = timesList.isNotEmpty ? timesList.join(', ') : '-';
+                    final inventory = m['inventory']?.toString() ?? '-';
+                    final unit = m['unit'] ?? '';
+                    final dosesTaken = m['doses_taken_today']?.toString() ?? '0';
+                    
+                    return [
+                      m['name'] ?? '-',
+                      m['dosage'] ?? '-',
+                      scheduleStr,
+                      '$inventory $unit',
+                      dosesTaken
+                    ];
+                  }),
                 ],
               ),
 
@@ -237,7 +281,7 @@ class DoctorPdfGenerator {
                 cellPadding: const pw.EdgeInsets.all(6),
                 data: <List<String>>[
                   ['Date & Time', 'Purpose', 'Status'],
-                  ...appointments.map((a) => [
+                  ...appointments.take(3).map((a) => [
                     _formatTime(a['appointment_time']),
                     a['purpose'] ?? '-',
                     a['status'] ?? '-',
@@ -260,7 +304,7 @@ class DoctorPdfGenerator {
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text('Prepared By: Dr. ${doctor['name']}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: _teal, fontSize: 11)),
+                      pw.Text('Prepared By: ${doctor['name']}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: _teal, fontSize: 11)),
                       if (doctor['specialisation'] != null && doctor['specialisation'].toString().isNotEmpty)
                         pw.Text(doctor['specialisation'], style: const pw.TextStyle(fontSize: 10)),
                       if (doctor['clinic_name'] != null && doctor['clinic_name'].toString().isNotEmpty)
@@ -279,7 +323,12 @@ class DoctorPdfGenerator {
     // ==========================================
     // PAGE 2: CHARTS
     // ==========================================
-    bool hasAnyChart = chartImages.values.any((img) => img != null);
+    bool hasAnyChart = (hasHR && chartImages['heart_rate'] != null) ||
+                       (hasBP && chartImages['blood_pressure'] != null) ||
+                       (hasGlucose && chartImages['blood_glucose'] != null) ||
+                       (hasSpO2 && chartImages['oxygen_saturation'] != null) ||
+                       (hasWeight && chartImages['body_weight'] != null);
+
     if (hasAnyChart) {
       pdf.addPage(
         pw.MultiPage(
@@ -290,15 +339,15 @@ class DoctorPdfGenerator {
             return [
               pw.Text('Metric Trends (Last 30 Readings)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16, color: _navy)),
               pw.SizedBox(height: 20),
-              if (chartImages['heart_rate'] != null)
+              if (hasHR && chartImages['heart_rate'] != null)
                 _buildChartBlock('Heart Rate (bpm)', '#EF4444', chartImages['heart_rate']!),
-              if (chartImages['blood_pressure'] != null)
+              if (hasBP && chartImages['blood_pressure'] != null)
                  _buildChartBlock('Blood Pressure (mmHg)', '#8B5CF6', chartImages['blood_pressure']!),
-              if (chartImages['blood_glucose'] != null)
+              if (hasGlucose && chartImages['blood_glucose'] != null)
                  _buildChartBlock('Blood Glucose (mg/dL)', '#F59E0B', chartImages['blood_glucose']!),
-              if (chartImages['oxygen_saturation'] != null)
+              if (hasSpO2 && chartImages['oxygen_saturation'] != null)
                  _buildChartBlock('O₂ Saturation (%)', '#3B82F6', chartImages['oxygen_saturation']!),
-              if (chartImages['body_weight'] != null)
+              if (hasWeight && chartImages['body_weight'] != null)
                  _buildChartBlock('Body Weight (kg)', '#10B981', chartImages['body_weight']!),
             ];
           },
@@ -307,9 +356,16 @@ class DoctorPdfGenerator {
     }
 
     // ==========================================
-    // PAGE 3: FULL HISTORY TABLE
+    // PAGE 3: FULL HISTORY TABLE (DYNAMIC)
     // ==========================================
-    if (metrics.isNotEmpty) {
+    final historyHeaders = ['Timestamp'];
+    if (hasHR) historyHeaders.add('HR');
+    if (hasBP) historyHeaders.add('BP');
+    if (hasGlucose) historyHeaders.add('Glucose');
+    if (hasSpO2) historyHeaders.add('SpO₂');
+    if (hasWeight) historyHeaders.add('Weight');
+
+    if (metrics.isNotEmpty && historyHeaders.length > 1) {
       pdf.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
@@ -329,16 +385,19 @@ class DoctorPdfGenerator {
                 cellStyle: const pw.TextStyle(fontSize: 9),
                 cellPadding: const pw.EdgeInsets.all(5),
                 data: <List<String>>[
-                  ['Timestamp', 'HR', 'BP', 'Glucose', 'SpO₂', 'Weight'],
-                  ...historyData.map((m) => [
-                    _formatTime(m['timestamp']),
-                    m['heart_rate']?.toString() ?? '-',
-                    (m['blood_pressure_systolic'] != null && m['blood_pressure_diastolic'] != null)
-                      ? '${m['blood_pressure_systolic']}/${m['blood_pressure_diastolic']}' : '-',
-                    m['blood_glucose']?.toString() ?? '-',
-                    m['oxygen_saturation']?.toString() ?? '-',
-                    m['body_weight']?.toString() ?? '-',
-                  ]),
+                  historyHeaders, 
+                  ...historyData.map((m) {
+                    final row = [_formatTime(m['timestamp'])];
+                    if (hasHR) row.add(m['heart_rate']?.toString() ?? '-');
+                    if (hasBP) {
+                      row.add((m['blood_pressure_systolic'] != null && m['blood_pressure_diastolic'] != null)
+                        ? '${m['blood_pressure_systolic']}/${m['blood_pressure_diastolic']}' : '-');
+                    }
+                    if (hasGlucose) row.add(m['blood_glucose']?.toString() ?? '-');
+                    if (hasSpO2) row.add(m['oxygen_saturation']?.toString() ?? '-');
+                    if (hasWeight) row.add(m['body_weight']?.toString() ?? '-');
+                    return row;
+                  }),
                 ],
               ),
             ];
